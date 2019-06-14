@@ -1,0 +1,81 @@
+service: step-functions-testing
+
+plugins:
+  - serverless-step-functions
+  - serverless-pseudo-parameters
+
+provider:
+  name: aws
+  runtime: nodejs8.10
+  region: us-west-2
+  profile: aws-personal
+
+  iamRoleStatements:
+    - Effect: 'Allow'
+      Action:
+        - 'states:ListStateMachines'
+        - 'states:StartExecution'
+      Resource: 'arn:aws:states:*:*:*'
+    - Effect: 'Allow'
+      Action:
+        - 'SNS:Subscribe'
+        - 'SNS:Receive'
+      Resource: 'arn:aws:sns:*:*:*'
+
+functions:
+  executeStepFunction:
+    handler: handler.executeStepFunction
+    events:
+      - http:
+          path: run
+          method: get
+      - sns:
+          arn: arn:aws:sns:#{AWS::Region}:#{AWS::AccountId}:number
+
+  calculateRandomNumber:
+    handler: handler.calculateRandomNumber
+  moreCalculations:
+    handler: handler.moreCalculations
+  iterator:
+    handler: handler.iterator
+
+stepFunctions:
+  stateMachines:
+    testingStatesMachine:
+      name: TestingStatesMachine
+      definition:
+        Comment: 'Example Step Function'
+        StartAt: ConfigureCount
+        States:
+          ConfigureCount:
+            Type: Pass
+            Result: 10
+            ResultPath: '$.count'
+            Next: ConfigureIterator
+          ConfigureIterator:
+            Type: Pass
+            Result:
+              index: -1
+              step: 1
+            ResultPath: $.iterator
+            Next: Iterator
+          Iterator:
+            Type: Task
+            Resource: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:service}-${opt:stage}-iterator
+            ResultPath: '$.iterator'
+            Next: IterateRecords
+          IterateRecords:
+            Type: Choice
+            Choices:
+              - Variable: '$.iterator.continue'
+                BooleanEquals: true
+                Next: calculateRandomNumber
+            Default: Done
+          calculateRandomNumber:
+            Type: Task
+            Resource: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:service}-${opt:stage}-calculateRandomNumber
+            Next: Iterator
+            TimeoutSeconds: 150
+          Done:
+            Type: Pass
+            End: true
